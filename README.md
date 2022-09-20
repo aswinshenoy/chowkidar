@@ -2,6 +2,51 @@
 
 A simple, straight-forward JWT authentication plugin for your Django Strawberry GraphQL APIs.
 
+## Installation
+
+1. Install the package from PyPI:
+
+```bash
+pip install chowkidar-strawberry
+```
+
+2. Add `chowkidar_strawberry` to your `INSTALLED_APPS`:
+
+```python
+INSTALLED_APPS = [
+    ...
+    "chowkidar",
+]
+```
+
+3. Add `chowkidar.extensions.JWTAuthExtension` to your strawberry schema extensions:-
+
+```python
+from chowkidar.extension import JWTAuthExtension
+
+schema = strawberry.Schema(
+    query=Query,
+    mutation=Mutation,
+    extensions=[JWTAuthExtension],
+)
+```
+
+4. Wrap your Strawberry GraphQL view with `chowkidar.view.auth_enabled_view`:
+
+```python
+from chowkidar.view import auth_enabled_view
+
+urlpatterns = [
+  ...
+  path(
+      "graphql/",
+      auth_enabled_view(
+          GraphQLView.as_view(schema=schema, graphiql=settings.DEBUG)
+      )
+  ),
+]
+```
+
 ## How it Works?
 
 - Uses short-lived stateless JWT Access Token set as cookie to authenticate users. An additional, long-running stateful 
