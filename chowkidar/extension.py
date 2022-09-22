@@ -147,12 +147,12 @@ class JWTAuthExtension(Extension):
             if self._newJWTToken is not None:
                 setattr(info.context.request, "NEW_JWT_TOKEN", self._newJWTToken)
 
-            # sets up info.context.userID, info.context.IPAddress
-            setattr(info.context, "userID", self.userID)
-            setattr(info.context, "IPAddress", self.IPAddress)
-
             setattr(info.context, "refreshTokenObj", self.refreshTokenObj)
             setattr(info.context, "refreshToken", self.refreshToken)
+
+        # sets up info.context.userID, info.context.IPAddress
+        setattr(info.context, "userID", self.userID)
+        setattr(info.context, "IPAddress", self.IPAddress)
 
         return _next(root, info, **kwargs)
 
