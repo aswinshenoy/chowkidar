@@ -35,7 +35,7 @@ class RefreshToken(models.Model):
         super().save(*args, **kwargs)
 
     class Meta:
-        db_table = "user_refresh_token"
+        db_table = "chowkidar_refresh_token"
         verbose_name_plural = "User Refresh Tokens"
         verbose_name = "User Refresh Token"
         unique_together = [

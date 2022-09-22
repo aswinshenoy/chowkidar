@@ -33,8 +33,9 @@ def resolve_user(resolver):
     @wraps(resolver)
     @login_required
     def wrapper(parent, info, *args, **kwargs):
+        from django.apps import apps
         from django.conf import settings
-        User = settings.AUTH_USER_MODEL
+        User = apps.get_model(settings.AUTH_USER_MODEL, require_ready=False)
 
         try:
             info.context.user = User.objects.get(id=info.context.userID)

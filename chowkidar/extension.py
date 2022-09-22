@@ -80,7 +80,7 @@ class JWTAuthExtension(Extension):
                 revoked__isnull=True,
                 # Avoid expired tokens -
                 # JWT_REFRESH_TOKEN_EXPIRATION_DELTA + issued_at (timestamp) > now for a valid token
-                issued_at__gte=timezone.now() - JWT_REFRESH_TOKEN_EXPIRATION_DELTA,
+                issued__gte=timezone.now() - JWT_REFRESH_TOKEN_EXPIRATION_DELTA,
             )
         except RefreshToken.DoesNotExist:
             self._remove_auth_cookies = True
@@ -154,7 +154,7 @@ class JWTAuthExtension(Extension):
             setattr(info.context, "refreshTokenObj", self.refreshTokenObj)
             setattr(info.context, "refreshToken", self.refreshToken)
 
-            return _next(root, info, **kwargs)
+        return _next(root, info, **kwargs)
 
 
 __all__ = [
