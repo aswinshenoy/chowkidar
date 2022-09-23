@@ -136,19 +136,19 @@ class JWTAuthExtension(Extension):
             So for efficiency, resolving or much processing should not be done here.
             Therefore, we already use the on_request_start() function to resolve and cache required data in the class.
         """
+
+        # Incase a new JWT access token was generated earlier from `on_request_start`, we set it to request contest
+        # this will be later picked up by view.py and to set the access token cookie in the response
+        if self._newJWTToken is not None:
+            setattr(info.context.request, "NEW_JWT_TOKEN", self._newJWTToken)
+
         # In case refresh token was not available or was invalid, we remove all the auth cookies from the response
-        if self._remove_auth_cookies:
+        elif self._remove_auth_cookies:
             setattr(info.context.request, "REMOVE_REFRESH_TOKEN", True)
             setattr(info.context.request, "REMOVE_JWT_TOKEN", True)
 
-        else:
-            # Incase a new JWT access token was generated earlier from `on_request_start`, we set it to request contest
-            # this will be later picked up by view.py and to set the access token cookie in the response
-            if self._newJWTToken is not None:
-                setattr(info.context.request, "NEW_JWT_TOKEN", self._newJWTToken)
-
-            setattr(info.context, "refreshTokenObj", self.refreshTokenObj)
-            setattr(info.context, "refreshToken", self.refreshToken)
+        setattr(info.context, "refreshTokenObj", self.refreshTokenObj)
+        setattr(info.context, "refreshToken", self.refreshToken)
 
         # sets up info.context.userID, info.context.IPAddress
         setattr(info.context, "userID", self.userID)

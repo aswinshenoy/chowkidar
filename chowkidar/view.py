@@ -36,6 +36,10 @@ def auth_enabled_view(view_func):
                 expires=data["payload"]["exp"],
                 response=response,
             )
+        # If the request was earlier set a REMOVE_JWT_TOKEN attribute by extension.py or by logout decorator
+        # then we need to delete the JWT access token cookie
+        elif hasattr(request, "REMOVE_JWT_TOKEN"):
+            delete_cookie(response=response, name=JWT_ACCESS_TOKEN_COOKIE_NAME)
 
         # If the request was earlier set a NEW_REFRESH_TOKEN attribute by extension.py or by login decorator
         # then we need to set a cookie with the new JWT refresh token
@@ -53,15 +57,9 @@ def auth_enabled_view(view_func):
                 expires=data["payload"]["exp"],
                 response=response,
             )
-
-        # If the request was earlier set a REMOVE_JWT_TOKEN attribute by extension.py or by logout decorator
-        # then we need to delete the JWT access token cookie
-        if hasattr(request, "REMOVE_JWT_TOKEN"):
-            delete_cookie(response=response, name=JWT_ACCESS_TOKEN_COOKIE_NAME)
-
         # If the request was earlier set a REMOVE_REFRESH_TOKEN attribute by extension.py or by logout decorator
         # then we need to delete the JWT refresh token cookie
-        if hasattr(request, "REMOVE_REFRESH_TOKEN"):
+        elif hasattr(request, "REMOVE_REFRESH_TOKEN"):
             delete_cookie(response=response, name=JWT_REFRESH_TOKEN_COOKIE_NAME)
 
         return response
