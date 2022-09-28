@@ -13,7 +13,7 @@ from .settings import (
 )
 from .utils.exceptions import AuthError
 from .utils.jwt import decode_payload_from_token, generate_token_from_claims
-from .models import RefreshToken
+from .models import AbstractRefreshToken
 
 
 class JWTAuthExtension(Extension):
@@ -34,12 +34,15 @@ class JWTAuthExtension(Extension):
         self.userID = None
 
         self.refreshToken = None
-        self.refreshTokenObj: Optional[RefreshToken] = None
+        self.refreshTokenObj: Optional[AbstractRefreshToken] = None
 
-        self._newJWTToken = None
+        self._new_JWT_access_token = None
         self._remove_auth_cookies = False
 
         super().__init__(execution_context=execution_context)
+
+    def is_cookie_in_request(self, cookie_name: str) -> bool:
+        return cookie_name in self._request.COOKIES and self._request.COOKIES[cookie_name]
 
     def _get_token_payload_from_cookie(self, cookie_name: str) -> Optional[dict]:
         """
@@ -48,34 +51,30 @@ class JWTAuthExtension(Extension):
         :param cookie_name: name of the cookie which carries the token
         :return: JWT Access Token as str
         """
-        if (
-            cookie_name in self._request.COOKIES and
-            self._request.COOKIES[cookie_name]
-        ):
+        if self.is_cookie_in_request(cookie_name):
             try:
                 return decode_payload_from_token(token=self._request.COOKIES[cookie_name])
             except AuthError:
                 return None
 
-    def _get_valid_refresh_token_from_request(self) -> Optional[RefreshToken]:
+    def _get_refresh_token_object(self) -> Optional[AbstractRefreshToken]:
         """
-        Get RefreshToken object from the request cookie, if it exists and is valid.
+        Get RefreshToken object from the already available self.refreshToken, if it exists and is valid.
         The refresh token is valid if it is not expired and is not revoked.
-        A DB query is made only if the refresh token is present in the request cookie.
 
         :return: A RefreshToken object if a valid refresh token is available, else None
         """
+        if self.refreshToken is None:
+            return
 
-        # Resolve refresh token string from the cookie
-        refresh_token_payload = self._get_token_payload_from_cookie(JWT_REFRESH_TOKEN_COOKIE_NAME)
-        if not refresh_token_payload:
-            self._remove_auth_cookies = True
-            return None
+        from django.apps import apps
+        from .settings import REFRESH_TOKEN_MODEL
+        RefreshToken = apps.get_model(REFRESH_TOKEN_MODEL, require_ready=False)
 
         # Verify the refresh token validity with database, and get the RefreshToken object
         try:
             return RefreshToken.objects.get(
-                token=refresh_token_payload["refreshToken"],
+                token=self.refreshToken,
                 # Avoid revoked tokens -  A refresh token is revoked if the revoked (timestamp) is set.
                 revoked__isnull=True,
                 # Avoid expired tokens -
@@ -104,11 +103,21 @@ class JWTAuthExtension(Extension):
         # Resolve Access Token
         access_token_payload = self._get_token_payload_from_cookie(JWT_ACCESS_TOKEN_COOKIE_NAME)
 
-        if access_token_payload:  # if a valid access token was available, then we set the userID directly
+        # Resolve Refresh Token
+        refresh_token_payload = self._get_token_payload_from_cookie(JWT_REFRESH_TOKEN_COOKIE_NAME)
+        if refresh_token_payload is not None:
+            self.refreshToken = refresh_token_payload["refreshToken"]
+
+        # if a valid access token cookie was available, then we set the userID directly from the cookie payload
+        if access_token_payload is not None:
             self.userID = access_token_payload["userID"]
-        else:
-            # Resolve Refresh Token from request, if it exists and is valid
-            self.refreshTokenObj: RefreshToken = self._get_valid_refresh_token_from_request()
+
+        # if a valid refresh token cookie was available, we try to generate new access token with the refresh token
+        elif refresh_token_payload is not None:
+
+            # Resolve Refresh Token model instance using the token resolved from cookie payload,
+            # and thereby, also check if it exists and is valid in database records
+            self.refreshTokenObj: AbstractRefreshToken = self._get_refresh_token_object()
 
             # if a valid refresh token was available, then we generate a new access token
             if self.refreshTokenObj is not None:
@@ -120,7 +129,7 @@ class JWTAuthExtension(Extension):
                 user.save()
 
                 # generate a new access token to be given to the user
-                self._newJWTToken = generate_token_from_claims(
+                self._new_JWT_access_token = generate_token_from_claims(
                     claims={
                         "userID": user.id,
                         "origIat": self.refreshTokenObj.issued.timestamp(),
@@ -129,6 +138,15 @@ class JWTAuthExtension(Extension):
                 )
 
                 self.userID = user.id
+
+        # if both access_token_payload & refresh_token_payload could not be resolved
+        else:
+            # if the cookies existed in the request, they are invalid now, and thus remove them
+            if (
+                self.is_cookie_in_request(JWT_ACCESS_TOKEN_COOKIE_NAME) or
+                self.is_cookie_in_request(JWT_REFRESH_TOKEN_COOKIE_NAME)
+            ):
+                self._remove_auth_cookies = True
 
     def resolve(self, _next, root, info: Info, *args, **kwargs):
         """
@@ -139,13 +157,12 @@ class JWTAuthExtension(Extension):
 
         # Incase a new JWT access token was generated earlier from `on_request_start`, we set it to request contest
         # this will be later picked up by view.py and to set the access token cookie in the response
-        if self._newJWTToken is not None:
-            setattr(info.context.request, "NEW_JWT_TOKEN", self._newJWTToken)
+        if self._new_JWT_access_token is not None:
+            setattr(info.context.request, "REFRESHED_ACCESS_TOKEN", self._new_JWT_access_token)
 
         # In case refresh token was not available or was invalid, we remove all the auth cookies from the response
         elif self._remove_auth_cookies:
-            setattr(info.context.request, "REMOVE_REFRESH_TOKEN", True)
-            setattr(info.context.request, "REMOVE_JWT_TOKEN", True)
+            setattr(info.context.request, "PERFORM_LOGOUT", True)
 
         setattr(info.context, "refreshTokenObj", self.refreshTokenObj)
         setattr(info.context, "refreshToken", self.refreshToken)

@@ -57,3 +57,7 @@ JWT_PRIVATE_KEY = (
 JWT_ALGORITHM = settings.JWT_ALGORITHM if hasattr(settings, "JWT_ALGORITHM") else "HS256"
 JWT_LEEWAY = settings.JWT_LEEWAY if hasattr(settings, "JWT_LEEWAY") else 0
 JWT_ISSUER = settings.JWT_ISSUER if hasattr(settings, "JWT_ISSUER") else None
+
+REFRESH_TOKEN_MODEL = (
+    settings.REFRESH_TOKEN_MODEL if hasattr(settings, "REFRESH_TOKEN_MODEL") else None
+)

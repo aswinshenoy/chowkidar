@@ -3,7 +3,6 @@ from ipware import get_client_ip
 from django.http import HttpRequest
 
 from .utils import get_context
-from .models import RefreshToken
 
 
 def issue_tokens_on_login(f):
@@ -19,6 +18,10 @@ def issue_tokens_on_login(f):
         if "User-Agent" in request.headers:
             agent = request.headers["user-agent"]
 
+        from django.apps import apps
+        from .settings import REFRESH_TOKEN_MODEL
+        RefreshToken = apps.get_model(REFRESH_TOKEN_MODEL, require_ready=False)
+
         return RefreshToken.objects.create(user_id=userID, ip=ip, userAgent=agent)
 
     @wraps(f)
@@ -27,6 +30,7 @@ def issue_tokens_on_login(f):
         ctx = get_context(info)
         if hasattr(info.context, "LOGIN_USER") and info.context.LOGIN_USER:
             token = generate_refresh_token(info.context.LOGIN_USER.id, ctx)
+            ctx.PERFORM_LOGIN = True
             ctx.NEW_REFRESH_TOKEN = token
         return result
 
@@ -44,8 +48,21 @@ def revoke_tokens_on_logout(f):
         result = f(cls, info, *args, **kwargs)
         ctx = get_context(info)
         if hasattr(info.context, "LOGOUT_USER") and info.context.LOGOUT_USER:
-            ctx.REMOVE_REFRESH_TOKEN = True
-            ctx.REMOVE_JWT_TOKEN = True
+
+            # Revoke associated refresh token model instance
+            if info.context.userID and info.context.refreshToken:
+                from django.apps import apps
+                from django.utils import timezone
+                from .settings import REFRESH_TOKEN_MODEL
+
+                RefreshToken = apps.get_model(REFRESH_TOKEN_MODEL, require_ready=False)
+
+                RefreshToken.objects.filter(
+                    token=info.context.refreshToken, user_id=info.context.userID
+                ).update(revoked=timezone.now())
+
+            # Used to remove the JWT Access Token & Refresh Token cookies from the response
+            ctx.PERFORM_LOGOUT = True
         return result
 
     return wrapper

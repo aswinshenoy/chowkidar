@@ -21,28 +21,7 @@ def auth_enabled_view(view_func):
     ```auth_enabled_view(GraphQLView.as_view(schema=schema, graphiql=settings.DEBUG))```
     """
 
-    def finish_response(request, response):
-        """
-            This function is called after the view function has been processed by Django, and is ready with a response.
-        """
-
-        # If the request was earlier set a NEW_JWT_TOKEN attribute by extension.py.
-        # then we need to set a cookie with the new JWT access token.
-        if hasattr(request, "NEW_JWT_TOKEN"):
-            data = request.NEW_JWT_TOKEN
-            response = set_cookie(
-                name=JWT_ACCESS_TOKEN_COOKIE_NAME,
-                value=data["token"],
-                expires=data["payload"]["exp"],
-                response=response,
-            )
-        # If the request was earlier set a REMOVE_JWT_TOKEN attribute by extension.py or by logout decorator
-        # then we need to delete the JWT access token cookie
-        elif hasattr(request, "REMOVE_JWT_TOKEN"):
-            delete_cookie(response=response, name=JWT_ACCESS_TOKEN_COOKIE_NAME)
-
-        # If the request was earlier set a NEW_REFRESH_TOKEN attribute by extension.py or by login decorator
-        # then we need to set a cookie with the new JWT refresh token
+    def set_refresh_token_cookie(request, response):
         if hasattr(request, "NEW_REFRESH_TOKEN"):
             rt = request.NEW_REFRESH_TOKEN
             data = generate_token_from_claims(
@@ -57,18 +36,38 @@ def auth_enabled_view(view_func):
                 expires=data["payload"]["exp"],
                 response=response,
             )
-        # If the request was earlier set a REMOVE_REFRESH_TOKEN attribute by extension.py or by logout decorator
-        # then we need to delete the JWT refresh token cookie
-        elif hasattr(request, "REMOVE_REFRESH_TOKEN"):
-            delete_cookie(response=response, name=JWT_REFRESH_TOKEN_COOKIE_NAME)
+        return response
+
+    def set_access_token_cookie(request, response):
+        if hasattr(request, "REFRESHED_ACCESS_TOKEN"):
+            data = request.REFRESHED_ACCESS_TOKEN
+            response = set_cookie(
+                name=JWT_ACCESS_TOKEN_COOKIE_NAME,
+                value=data["token"],
+                expires=data["payload"]["exp"],
+                response=response,
+            )
+        return response
+
+    def finish_response(request, response):
+        """
+            This function is called after the view function has been processed by Django, and is ready with a response.
+        """
+
+        if hasattr(request, "PERFORM_LOGIN") or hasattr(request, "PERFORM_LOGOUT"):
+            if hasattr(request, 'PERFORM_LOGIN'):
+                response = set_refresh_token_cookie(request, response)
+            else:
+                response = delete_cookie(response=response, name=JWT_REFRESH_TOKEN_COOKIE_NAME)
+                response = delete_cookie(response=response, name=JWT_ACCESS_TOKEN_COOKIE_NAME)
+        elif hasattr(request, "REFRESHED_ACCESS_TOKEN"):
+            response = set_access_token_cookie(request, response)
 
         return response
 
     @wraps(view_func)
     def wrapped_view(request, *args, **kwargs):
-        request.jwt_cookie = True
-        response = view_func(request, *args, **kwargs)
-        return finish_response(request, response)
+        return finish_response(request, view_func(request, *args, **kwargs))
 
     return wrapped_view
 

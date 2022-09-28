@@ -2,7 +2,7 @@ from django.db import models
 from django.conf import settings
 
 
-class RefreshToken(models.Model):
+class AbstractRefreshToken(models.Model):
     id = models.BigAutoField(primary_key=True)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -35,7 +35,7 @@ class RefreshToken(models.Model):
         super().save(*args, **kwargs)
 
     class Meta:
-        db_table = "chowkidar_refresh_token"
+        abstract = True
         verbose_name_plural = "User Refresh Tokens"
         verbose_name = "User Refresh Token"
         unique_together = [
@@ -48,5 +48,5 @@ class RefreshToken(models.Model):
 
 
 __all__ = [
-    'RefreshToken'
+    'AbstractRefreshToken'
 ]

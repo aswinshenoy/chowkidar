@@ -1,6 +1,6 @@
 # Chowkidar
 
-A simple, straight-forward JWT authentication plugin for your Django Strawberry GraphQL APIs.
+A simple, flexible JWT authentication plugin for your Django Strawberry GraphQL APIs.
 
 ## Installation
 
@@ -47,6 +47,126 @@ urlpatterns = [
 ]
 ```
 
+5. Create a Refresh Token Model inheriting the `chowkidar.models.AbstractRefreshToken` abstract model:
+
+```python
+class RefreshToken(AbstractRefreshToken, models.Model):
+    pass
+```
+
+(do not forget run to `python manage.py makemigrations` and `python manage.py migrate`)
+
+6. Implement Mutations for `login` and `logout` with `issue_tokens_on_login` and `revoke_tokens_on_logout` respectively:
+
+```python
+import strawberry
+from chowkidar.wrappers import issue_tokens_on_login, revoke_tokens_on_logout
+
+@strawberry.type
+class AuthMutations:
+  
+  @strawberry.mutation
+  @issue_tokens_on_login
+  def login(self, info, username: str, password: str) -> bool:
+      user = authenticate(username=username, password=password)
+      if user is None:
+          raise Exception("Invalid username or password")
+      
+      # Set LOGIN_USER with the authenticated user's object, in case of successful authentication
+      # else, set LOGIN_USER to None
+      info.context.LOGIN_USER = user
+      
+      return True
+  
+  @strawberry.mutation
+  @revoke_tokens_on_logout
+  def logout(self, info) -> bool:
+      # Set info.context.LOGIN_USER to True for logging out the user
+      info.context.LOGOUT_USER = True
+      
+      return True
+```
+
+All your resolvers will now get the following parameters from `info.context` -
+ - `info.context.userID` - ID of the requesting user, None if not logged-in 
+ - `info.context.refreshToken`- Refresh token string of the requesting user, None if not logged-in
+- `info.context.IPAddress` - IP Address of the requesting user
+
+## Decorators
+
+You can use these decorators
+
+1. `@login_required` - wrap your resolver with this decorator to ensure the resolver is called only for logged-in users.
+    
+```python
+from chowkidar.decorators import login_required
+
+@strawberry.type
+class Query:
+    
+    @strawberry.field
+    @login_required
+    def movies(self, info) -> List[MovieType]:
+        return Movie.objects.all()
+```
+
+2. `@resolve_user` - wrap this around your resolver to obtain `User` model instance of the requesting user at `info.context.user`. Hits the Database. Will throw an exception if the user is not logged-in.
+
+```python
+from chowkidar.decorators import resolve_user
+
+@strawberry.type
+class Mutation:
+    
+    @strawberry.mutation
+    @resolve_user
+    def create_movie(self, name: str, info) -> List[MovieType]:
+        if not info.context.user.is_superuser:
+            raise Exception("Only superusers can create movies")
+        
+        # Note: Like you see here, for most queryset operations you can use - user_id=info.context.userID, without needing any decorator or hitting the DB.
+        return Movie.objects.create(name=name, user_id=info.context.userID)  
+
+```
+
+
+## Settings
+
+Here are the available settings -
+
+```
+REFRESH_TOKEN_MODEL = None # Required, a model that implements chowkidar.models.AbstractRefreshToken
+
+JWT_REFRESH_TOKEN_N_BYTES: int = 20
+
+# Expiry Settings
+
+JWT_ACCESS_TOKEN_EXPIRATION_DELTA: timedelta = timezone.timedelta(seconds=60)
+JWT_REFRESH_TOKEN_EXPIRATION_DELTA: timedelta = timezone.timedelta(seconds=60 * 60 * 24 * 7)
+
+# Cookie Settings
+
+JWT_ACCESS_TOKEN_COOKIE_NAME: str = 'JWT_ACCESS_TOKEN'
+JWT_REFRESH_TOKEN_COOKIE_NAME: str = 'JWT_REFRESH_TOKEN'
+
+JWT_COOKIE_DOMAIN: str = None
+JWT_COOKIE_SAME_SITE: ['Lax', 'Strict', 'None'] = "Lax"
+JWT_COOKIE_SECURE: bool = False
+JWT_COOKIE_HTTP_ONLY: bool = True
+
+
+# JWT Settings
+JWT_SECRET_KEY: str = settings.SECRET_KEY
+)
+JWT_PUBLIC_KEY: str = None
+JWT_PRIVATE_KEY: str = None
+
+JWT_ALGORITHM: str = "HS256"
+JWT_LEEWAY: int = 0
+JWT_ISSUER: str = None
+
+```
+
 ## How it Works?
 
 - Uses short-lived stateless JWT Access Token set as cookie to authenticate users. An additional, long-running stateful 
@@ -71,9 +191,14 @@ urlpatterns = [
 
 ## Acknowledgement
 
-This project is inspired by django-graphql-jwt & django-graphql-social-auth by flavors, and is loosely 
-forked from its implementation. 
+This project is inspired by django-graphql-jwt & django-graphql-social-auth by flavors.
+
+## Contribution
+
+Contributions are welcome. Please open an issue or a PR.
 
 ## License
 
 This project is licensed under the [GNU General Public License V3](LICENSE).
+
+Made by [Traboda](https://github.com/traboda/chowkidar) with ❤️ in India 🇮🇳.
