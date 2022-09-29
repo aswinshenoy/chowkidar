@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.http import HttpRequest
 
 
 class AbstractRefreshToken(models.Model):
@@ -13,8 +14,6 @@ class AbstractRefreshToken(models.Model):
     token = models.CharField(max_length=255, editable=False)
     issued = models.DateTimeField(auto_now_add=True, editable=False)
     revoked = models.DateTimeField(null=True, blank=True)
-    ip = models.GenericIPAddressField(null=True, blank=True)
-    userAgent = models.CharField(max_length=255, null=True, blank=True)
 
     @staticmethod
     def generate_token():
@@ -28,6 +27,16 @@ class AbstractRefreshToken(models.Model):
         if hasattr(self, "_cached_token"):
             return self._cached_token
         return self.token
+
+    def process_request_before_save(self, request: HttpRequest) -> None:
+        """
+        This function is called just before a new refresh token is saved.
+        This can be used to add additional information to the refresh token.
+
+        :param request: HTTP request object
+        :return: None
+        """
+        pass
 
     def save(self, *args, **kwargs):
         if not self.token:

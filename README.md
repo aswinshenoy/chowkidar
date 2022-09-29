@@ -90,7 +90,6 @@ class AuthMutations:
 All your resolvers will now get the following parameters from `info.context` -
  - `info.context.userID` - ID of the requesting user, None if not logged-in 
  - `info.context.refreshToken`- Refresh token string of the requesting user, None if not logged-in
-- `info.context.IPAddress` - IP Address of the requesting user
 
 ## Decorators
 
@@ -129,6 +128,25 @@ class Mutation:
 
 ```
 
+## Tracking IP Address & User Agent in Refresh Token
+
+```python
+class RefreshToken(AbstractRefreshToken, models.Model):
+  ip = models.GenericIPAddressField(null=True, blank=True)
+  userAgent = models.CharField(max_length=255, null=True, blank=True)
+  
+  def process_request_before_save(self, request: HttpRequest):
+      # set IP from the request
+      from ipware import get_client_ip
+      ip, is_routable = get_client_ip(request)
+      self.ip = ip
+      
+      # set user agent from the request
+      agent = None
+      if "User-Agent" in request.headers:
+          agent = request.headers["user-agent"]
+      self.userAgent = agent
+```
 
 ## Settings
 

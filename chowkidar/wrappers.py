@@ -1,5 +1,4 @@
 from functools import wraps
-from ipware import get_client_ip
 from django.http import HttpRequest
 
 from .utils import get_context
@@ -12,17 +11,14 @@ def issue_tokens_on_login(f):
     """
 
     def generate_refresh_token(userID, request: HttpRequest):
-        ip, is_routable = get_client_ip(request)
-
-        agent = None
-        if "User-Agent" in request.headers:
-            agent = request.headers["user-agent"]
-
         from django.apps import apps
         from .settings import REFRESH_TOKEN_MODEL
         RefreshToken = apps.get_model(REFRESH_TOKEN_MODEL, require_ready=False)
 
-        return RefreshToken.objects.create(user_id=userID, ip=ip, userAgent=agent)
+        token = RefreshToken(user_id=userID)
+        token.process_request_before_save(request)
+        token.save()
+        return token
 
     @wraps(f)
     def wrapper(cls, info, *args, **kwargs):

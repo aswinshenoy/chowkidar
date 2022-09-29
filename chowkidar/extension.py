@@ -1,7 +1,6 @@
 from typing import Optional
 from django.http import HttpRequest
 from django.utils import timezone
-from ipware import get_client_ip
 from strawberry.extensions import Extension
 from strawberry.types import ExecutionContext, Info
 
@@ -30,9 +29,7 @@ class JWTAuthExtension(Extension):
     def __init__(self, *, execution_context: ExecutionContext):
         self._request: Optional[HttpRequest] = None
 
-        self.IPAddress = None
         self.userID = None
-
         self.refreshToken = None
         self.refreshTokenObj: Optional[AbstractRefreshToken] = None
 
@@ -95,10 +92,6 @@ class JWTAuthExtension(Extension):
         """
         execution_context = self.execution_context
         self._request = execution_context.context["request"]
-
-        # Resolve IP Address
-        ip, is_routable = get_client_ip(self._request)
-        self.IPAddress = ip
 
         # Resolve Access Token
         access_token_payload = self._get_token_payload_from_cookie(JWT_ACCESS_TOKEN_COOKIE_NAME)
@@ -166,10 +159,7 @@ class JWTAuthExtension(Extension):
 
         setattr(info.context, "refreshTokenObj", self.refreshTokenObj)
         setattr(info.context, "refreshToken", self.refreshToken)
-
-        # sets up info.context.userID, info.context.IPAddress
         setattr(info.context, "userID", self.userID)
-        setattr(info.context, "IPAddress", self.IPAddress)
 
         return _next(root, info, **kwargs)
 
