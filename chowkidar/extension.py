@@ -160,6 +160,7 @@ class JWTAuthExtension(Extension):
         setattr(info.context, "refreshTokenObj", self.refreshTokenObj)
         setattr(info.context, "refreshToken", self.refreshToken)
         setattr(info.context, "userID", self.userID)
+        setattr(info.context, "request", self._request)
 
         return _next(root, info, **kwargs)
 
