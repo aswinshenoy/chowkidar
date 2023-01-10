@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.db import models
 from django.conf import settings
 from django.http import HttpRequest
@@ -22,6 +24,22 @@ class AbstractRefreshToken(models.Model):
         from os import urandom
         from .settings import JWT_REFRESH_TOKEN_N_BYTES
         return hexlify(urandom(JWT_REFRESH_TOKEN_N_BYTES)).decode()
+
+    @staticmethod
+    def get_access_token_expiry_delta() -> timedelta:
+        """
+         Returns the expiry delta for access tokens
+        """
+        from .settings import JWT_ACCESS_TOKEN_EXPIRATION_DELTA
+        return JWT_ACCESS_TOKEN_EXPIRATION_DELTA
+
+    @staticmethod
+    def get_refresh_token_expiry_delta() -> timedelta:
+        """
+         Returns the expiry delta for refresh tokens
+        """
+        from .settings import JWT_REFRESH_TOKEN_EXPIRATION_DELTA
+        return JWT_REFRESH_TOKEN_EXPIRATION_DELTA
 
     def get_token(self):
         if hasattr(self, "_cached_token"):

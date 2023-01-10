@@ -3,7 +3,6 @@ from functools import wraps
 from .settings import (
     JWT_ACCESS_TOKEN_COOKIE_NAME,
     JWT_REFRESH_TOKEN_COOKIE_NAME,
-    JWT_REFRESH_TOKEN_EXPIRATION_DELTA,
 )
 from .utils.cookie import set_cookie, delete_cookie
 from .utils.jwt import generate_token_from_claims
@@ -28,7 +27,7 @@ def auth_enabled_view(view_func):
                 claims={
                     "refreshToken": rt.get_token(),
                 },
-                expiration_delta=JWT_REFRESH_TOKEN_EXPIRATION_DELTA,
+                expiration_delta=rt.get_refresh_token_expiry_delta(),
             )
             response = set_cookie(
                 name=JWT_REFRESH_TOKEN_COOKIE_NAME,

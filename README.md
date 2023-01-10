@@ -207,6 +207,14 @@ JWT_ISSUER: str = None
 - Consumer APIs can decorate auth requiring resolvers with `@login_required` (or `@resolve_user`), as well as get 
    get the ID of the requesting user from `info.context.userID`. The decorators are defined in `decorators.py`.
 
+
+## Publishing
+```bash
+    python setup.py sdist
+    twine upload dist/*
+```
+
+
 ## Acknowledgement
 
 This project is inspired by django-graphql-jwt & django-graphql-social-auth by flavors.

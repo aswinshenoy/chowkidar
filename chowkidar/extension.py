@@ -5,8 +5,6 @@ from strawberry.extensions import Extension
 from strawberry.types import ExecutionContext, Info
 
 from .settings import (
-    JWT_REFRESH_TOKEN_EXPIRATION_DELTA,
-    JWT_ACCESS_TOKEN_EXPIRATION_DELTA,
     JWT_REFRESH_TOKEN_COOKIE_NAME,
     JWT_ACCESS_TOKEN_COOKIE_NAME,
 )
@@ -76,7 +74,7 @@ class JWTAuthExtension(Extension):
                 revoked__isnull=True,
                 # Avoid expired tokens -
                 # JWT_REFRESH_TOKEN_EXPIRATION_DELTA + issued_at (timestamp) > now for a valid token
-                issued__gte=timezone.now() - JWT_REFRESH_TOKEN_EXPIRATION_DELTA,
+                issued__gte=timezone.now() - RefreshToken().get_refresh_token_expiry_delta(),
             )
         except RefreshToken.DoesNotExist:
             self._remove_auth_cookies = True
@@ -127,7 +125,7 @@ class JWTAuthExtension(Extension):
                         "userID": user.id,
                         "origIat": self.refreshTokenObj.issued.timestamp(),
                     },
-                    expiration_delta=JWT_ACCESS_TOKEN_EXPIRATION_DELTA,
+                    expiration_delta=self.refreshTokenObj.get_access_token_expiry_delta(),
                 )
 
                 self.userID = user.id
