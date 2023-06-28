@@ -23,7 +23,7 @@ def authenticate_with_username(password: str, username: str, request: Optional[H
 
 def authenticate_with_email(password: str, email: str, request: Optional[HttpRequest] = None) -> User:
     try:
-        username = User.objects.get(email=validate_email(email)).username
+        username = User.objects.get(email__iexact=validate_email(email)).username
         return authenticate_with_username(password=password, username=username, request=request)
     except User.DoesNotExist:
         raise AuthError(message='An account with this email address does not exist', code='EMAIL_NOT_FOUND')
