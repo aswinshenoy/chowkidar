@@ -1,6 +1,5 @@
 from typing import Optional
 
-from django.contrib.auth import authenticate
 from django.http import HttpRequest
 from django.apps import apps
 from django.conf import settings
@@ -12,6 +11,7 @@ User = apps.get_model(settings.AUTH_USER_MODEL, require_ready=False)
 
 
 def authenticate_with_username(password: str, username: str, request: Optional[HttpRequest] = None) -> User:
+    from django.contrib.auth import authenticate
     user = authenticate(request=request, username=username, password=password)
     if user is None:
         msg = 'The username or password you entered is wrong'
