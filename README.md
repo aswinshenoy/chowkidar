@@ -10,7 +10,7 @@ A simple, flexible JWT authentication plugin for your Django Strawberry GraphQL 
 pip install chowkidar-strawberry
 ```
 
-2. Add `chowkidar_strawberry` to your `INSTALLED_APPS`:
+2. Add `chowkidar` to your `INSTALLED_APPS`:
 
 ```python
 INSTALLED_APPS = [
@@ -31,7 +31,7 @@ schema = strawberry.Schema(
 )
 ```
 
-4. Wrap your Strawberry GraphQL view with `chowkidar.view.auth_enabled_view`:
+4. Wrap your Strawberry GraphQL view with `chowkidar.view.auth_enabled_view` in your `urls.py`:
 
 ```python
 from chowkidar.view import auth_enabled_view
@@ -47,7 +47,7 @@ urlpatterns = [
 ]
 ```
 
-5. Create a Refresh Token Model inheriting the `chowkidar.models.AbstractRefreshToken` abstract model:
+5. Create a Refresh Token Model in an app of your choice inheriting the `chowkidar.models.AbstractRefreshToken` abstract model:
 
 ```python
 class RefreshToken(AbstractRefreshToken, models.Model):
@@ -56,40 +56,53 @@ class RefreshToken(AbstractRefreshToken, models.Model):
 
 (do not forget run to `python manage.py makemigrations` and `python manage.py migrate`)
 
-6. Implement Mutations for `login` and `logout` with `issue_tokens_on_login` and `revoke_tokens_on_logout` respectively:
+6. Add 'REFRESH_TOKEN_MODEL' to your `settings.py` and point it to the Refresh Token Model you created in the previous step:
+
+```python
+REFRESH_TOKEN_MODEL = '<your app>.RefreshToken'
+```
+
+7. Implement Mutations for `login` and `logout` with `issue_tokens_on_login` and `revoke_tokens_on_logout` respectively:
 
 ```python
 import strawberry
 from chowkidar.wrappers import issue_tokens_on_login, revoke_tokens_on_logout
+from chowkidar.authentication import authenticate  # You may also use your own authentication methods or other methods like `authenticate_with_email` from chowkidar as well.
+
 
 @strawberry.type
 class AuthMutations:
-  
+
   @strawberry.mutation
   @issue_tokens_on_login
   def login(self, info, username: str, password: str) -> bool:
-      user = authenticate(username=username, password=password)
-      if user is None:
-          raise Exception("Invalid username or password")
-      
-      # Set LOGIN_USER with the authenticated user's object, in case of successful authentication
-      # else, set LOGIN_USER to None
-      info.context.LOGIN_USER = user
-      
-      return True
-  
+    user = authenticate(username=username, password=password)
+    if user is None:
+      raise Exception("Invalid username or password")
+
+    # Set LOGIN_USER with the authenticated user's object, in case of successful authentication
+    # else, set LOGIN_USER to None
+    info.context.LOGIN_USER = user
+
+    return True
+
   @strawberry.mutation
   @revoke_tokens_on_logout
   def logout(self, info) -> bool:
-      # Set info.context.LOGIN_USER to True for logging out the user
-      info.context.LOGOUT_USER = True
-      
-      return True
+    # Set info.context.LOGIN_USER to True for logging out the user
+    info.context.LOGOUT_USER = True
+
+    return True
 ```
 
 All your resolvers will now get the following parameters from `info.context` -
  - `info.context.userID` - ID of the requesting user, None if not logged-in 
  - `info.context.refreshToken`- Refresh token string of the requesting user, None if not logged-in
+
+Chowkidar comes with 3 authentication methods (importable from `chowkidar.authentication`), which you may use -
+1. `authenticate_with_email` - authenticate with email and password
+2. `authenticate_with_username` - authenticate with username and password
+3. `authenticate` - authenticate with username or email and password
 
 ## Decorators
 
