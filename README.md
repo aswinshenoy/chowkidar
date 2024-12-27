@@ -239,5 +239,3 @@ Contributions are welcome. Please open an issue or a PR.
 ## License
 
 This project is licensed under the [GNU General Public License V3](LICENSE).
-
-Made by [Traboda](https://github.com/traboda/chowkidar) with ❤️ in India 🇮🇳.
