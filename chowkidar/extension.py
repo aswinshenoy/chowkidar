@@ -25,16 +25,22 @@ class JWTAuthExtension(Extension):
     """
 
     def __init__(self, *, execution_context: ExecutionContext):
-        self._request: Optional[HttpRequest] = None
+        # Initialize extension with the execution context
+        super().__init__(execution_context=execution_context)
+        # We don't initialize state here as it needs to be reset for each request
+        # State will be initialized in on_request_start
 
+    def _init_request_state(self) -> None:
+        """
+        Initialize/reset all state variables for the current request.
+        This ensures each request gets a fresh state, preventing state leakage between requests.
+        """
+        self._request: Optional[HttpRequest] = None
         self.userID = None
         self.refreshToken = None
         self.refreshTokenObj: Optional[AbstractRefreshToken] = None
-
         self._new_JWT_access_token = None
         self._remove_auth_cookies = False
-
-        super().__init__(execution_context=execution_context)
 
     def is_cookie_in_request(self, cookie_name: str) -> bool:
         return cookie_name in self._request.COOKIES and self._request.COOKIES[cookie_name]
@@ -82,12 +88,18 @@ class JWTAuthExtension(Extension):
 
     def on_request_start(self):
         """
-            This function is called by strawberry before it starts to process/resolve the actual graphql query/mutation.
-            This function performs the following tasks:
-                - resolves and sets IP address of the client
-                - resolve and cache requester userID in the class, which would later be used to set info.context.userID
-                - generate a new JWT access token if the current one is expired, if there is an active refresh token
+        This function is called by strawberry before it starts to process/resolve the actual graphql query/mutation.
+        This function performs the following tasks:
+            - resolves and sets IP address of the client
+            - resolve and cache requester userID in the class, which would later be used to set info.context.userID
+            - generate a new JWT access token if the current one is expired, if there is an active refresh token
+
+        Note: State is reset at the start of each request to prevent state leakage between requests
+        due to potential extension instance reuse by Strawberry.
         """
+        # Reset all state variables to ensure clean state for new request
+        self._init_request_state()
+
         execution_context = self.execution_context
         self._request = execution_context.context["request"]
 
@@ -105,7 +117,6 @@ class JWTAuthExtension(Extension):
 
         # if a valid refresh token cookie was available, we try to generate new access token with the refresh token
         elif refresh_token_payload is not None:
-
             # Resolve Refresh Token model instance using the token resolved from cookie payload,
             # and thereby, also check if it exists and is valid in database records
             self.refreshTokenObj: AbstractRefreshToken = self._get_refresh_token_object()
@@ -141,11 +152,10 @@ class JWTAuthExtension(Extension):
 
     def resolve(self, _next, root, info: Info, *args, **kwargs):
         """
-            This function is called by strawberry after everytime it resolves a field/type.
-            So for efficiency, resolving or much processing should not be done here.
-            Therefore, we already use the on_request_start() function to resolve and cache required data in the class.
+        This function is called by strawberry after everytime it resolves a field/type.
+        So for efficiency, resolving or much processing should not be done here.
+        Therefore, we already use the on_request_start() function to resolve and cache required data in the class.
         """
-
         # Incase a new JWT access token was generated earlier from `on_request_start`, we set it to request contest
         # this will be later picked up by view.py and to set the access token cookie in the response
         if self._new_JWT_access_token is not None:
