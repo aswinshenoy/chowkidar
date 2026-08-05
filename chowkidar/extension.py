@@ -1,136 +1,188 @@
-from typing import Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+from collections.abc import Callable
+
+import strawberry
+from django.apps import apps
 from django.http import HttpRequest
 from django.utils import timezone
-from strawberry.extensions import Extension
-from strawberry.types import ExecutionContext, Info
+from strawberry.types import ExecutionContext
+from strawberry.extensions import SchemaExtension
 
-from .settings import (
-    JWT_REFRESH_TOKEN_COOKIE_NAME,
-    JWT_ACCESS_TOKEN_COOKIE_NAME,
-)
-from .utils.exceptions import AuthError
-from .utils.jwt import decode_payload_from_token, generate_token_from_claims
-from .models import AbstractRefreshToken
+if TYPE_CHECKING:
+    from chowkidar.models import AbstractRefreshToken
 
 
-class JWTAuthExtension(Extension):
+class JWTAuthExtension(SchemaExtension):
+    """Strawberry schema extension for JWT cookie-based authentication.
+
+    Processes incoming request cookies to resolve the requester's identity,
+    refreshes expired access tokens when a valid refresh token exists, and
+    populates ``info.context`` with auth state for downstream resolvers.
+
+    Notes
+    -----
+    - Register on the schema via
+      ``strawberry.Schema(query=Query, extensions=[JWTAuthExtension])``.
+    - ``execution_context`` is optional; Strawberry sets it on the instance
+      before invoking hooks.
+
     """
-    Strawberry extension to process the request, setup info.context.userID and perform token refresh.
-    This class persists throughout the processing of entire request, and is called multiple times.
 
-    This extension must be added, and registered with the strawberry schema, -
-    strawberry.Schema(query=Query, mutation=Mutation, extensions=[JWTAuthExtension,])
+    def __init__(
+        self,
+        *,
+        execution_context: ExecutionContext | None = None,
+    ):
+        """Initialize the extension and set default state variables.
 
-    Read more about custom extensions here -> https://strawberry.rocks/docs/guides/custom-extensions
-    """
+        Parameters
+        ----------
+        execution_context : ExecutionContext | None, optional
+            The Strawberry execution context. Strawberry sets this on the instance
+            after construction in newer versions, by default None.
 
-    def __init__(self, *, execution_context: ExecutionContext):
-        # Initialize extension with the execution context
+        """
         super().__init__(execution_context=execution_context)
-        # We don't initialize state here as it needs to be reset for each request
-        # State will be initialized in on_request_start
+        self._request: HttpRequest | None = None
+        self.userID: int | None = None
+        self.refreshToken: str | None = None
+        self.refreshTokenObj: AbstractRefreshToken | None = None
+        self._new_JWT_access_token: str | None = None
+        self._remove_auth_cookies: bool = False
 
     def _init_request_state(self) -> None:
+        """Reset all state variables to defaults for a new request.
+
+        Notes
+        -----
+        - Called at the start of each ``on_operation`` cycle to prevent state
+          leakage between requests.
+
         """
-        Initialize/reset all state variables for the current request.
-        This ensures each request gets a fresh state, preventing state leakage between requests.
-        """
-        self._request: Optional[HttpRequest] = None
-        self.userID = None
-        self.refreshToken = None
-        self.refreshTokenObj: Optional[AbstractRefreshToken] = None
-        self._new_JWT_access_token = None
-        self._remove_auth_cookies = False
+        self._request: HttpRequest | None = None
+        self.userID: int | None = None
+        self.refreshToken: str | None = None
+        self.refreshTokenObj: AbstractRefreshToken | None = None
+        self._new_JWT_access_token: str | None = None
+        self._remove_auth_cookies: bool = False
 
     def is_cookie_in_request(self, cookie_name: str) -> bool:
+        """Check whether a non-empty cookie exists in the current request.
+
+        Parameters
+        ----------
+        cookie_name : str
+            The name of the cookie to look up.
+
+        Returns
+        -------
+        bool
+            ``True`` if the cookie exists and has a truthy value.
+
+        """
         return cookie_name in self._request.COOKIES and self._request.COOKIES[cookie_name]
 
-    def _get_token_payload_from_cookie(self, cookie_name: str) -> Optional[dict]:
-        """
-        Get token payload from request cookies for the cookie_name given after decoding the token, if it exists
+    def _get_token_payload_from_cookie(self, cookie_name: str) -> dict | None:
+        """Decode and return the JWT payload from a request cookie.
 
-        :param cookie_name: name of the cookie which carries the token
-        :return: JWT Access Token as str
+        Parameters
+        ----------
+        cookie_name : str
+            The name of the cookie containing the JWT token.
+
+        Returns
+        -------
+        dict | None
+            The decoded JWT payload, or ``None`` if the cookie is missing or
+            the token is invalid.
+
         """
+        from chowkidar.utils.jwt import decode_payload_from_token
+        from chowkidar.utils.exceptions import AuthError
+
         if self.is_cookie_in_request(cookie_name):
             try:
                 return decode_payload_from_token(token=self._request.COOKIES[cookie_name])
             except AuthError:
                 return None
 
-    def _get_refresh_token_object(self) -> Optional[AbstractRefreshToken]:
-        """
-        Get RefreshToken object from the already available self.refreshToken, if it exists and is valid.
-        The refresh token is valid if it is not expired and is not revoked.
+    def _get_refresh_token_object(self) -> AbstractRefreshToken | None:
+        """Look up the refresh token in the database and validate it.
 
-        :return: A RefreshToken object if a valid refresh token is available, else None
+        Returns
+        -------
+        AbstractRefreshToken | None
+            The valid refresh token instance, or ``None`` if the token is missing,
+            revoked, or expired.
+
+        Notes
+        -----
+        - Sets ``_remove_auth_cookies`` to ``True`` when the token exists in the
+          cookie but is not found or is invalid in the database.
+
         """
+        from chowkidar.settings import REFRESH_TOKEN_MODEL
+
         if self.refreshToken is None:
             return
 
-        from django.apps import apps
-        from .settings import REFRESH_TOKEN_MODEL
         RefreshToken = apps.get_model(REFRESH_TOKEN_MODEL, require_ready=False)
 
-        # Verify the refresh token validity with database, and get the RefreshToken object
         try:
             return RefreshToken.objects.get(
                 token=self.refreshToken,
-                # Avoid revoked tokens -  A refresh token is revoked if the revoked (timestamp) is set.
                 revoked__isnull=True,
-                # Avoid expired tokens -
-                # JWT_REFRESH_TOKEN_EXPIRATION_DELTA + issued_at (timestamp) > now for a valid token
                 issued__gte=timezone.now() - RefreshToken().get_refresh_token_expiry_delta(),
             )
         except RefreshToken.DoesNotExist:
             self._remove_auth_cookies = True
             return None
 
-    def on_request_start(self):
-        """
-        This function is called by strawberry before it starts to process/resolve the actual graphql query/mutation.
-        This function performs the following tasks:
-            - resolves and sets IP address of the client
-            - resolve and cache requester userID in the class, which would later be used to set info.context.userID
-            - generate a new JWT access token if the current one is expired, if there is an active refresh token
+    def on_operation(self):
+        """Strawberry operation hook that runs auth logic before query execution.
 
-        Note: State is reset at the start of each request to prevent state leakage between requests
-        due to potential extension instance reuse by Strawberry.
+        Yields
+        ------
+        None
+            Yields once after completing pre-operation auth processing.
+
+        Notes
+        -----
+        - Resets state, resolves access and refresh tokens from cookies, and
+          generates a new access token when the current one is expired but a
+          valid refresh token exists.
+
         """
-        # Reset all state variables to ensure clean state for new request
+        from chowkidar.settings import JWT_ACCESS_TOKEN_COOKIE_NAME
+        from chowkidar.settings import JWT_REFRESH_TOKEN_COOKIE_NAME
+        from chowkidar.utils.jwt import generate_token_from_claims
+
         self._init_request_state()
 
         execution_context = self.execution_context
         self._request = execution_context.context["request"]
 
-        # Resolve Access Token
         access_token_payload = self._get_token_payload_from_cookie(JWT_ACCESS_TOKEN_COOKIE_NAME)
 
-        # Resolve Refresh Token
         refresh_token_payload = self._get_token_payload_from_cookie(JWT_REFRESH_TOKEN_COOKIE_NAME)
         if refresh_token_payload is not None:
             self.refreshToken = refresh_token_payload["refreshToken"]
 
-        # if a valid access token cookie was available, then we set the userID directly from the cookie payload
         if access_token_payload is not None:
             self.userID = access_token_payload["userID"]
 
-        # if a valid refresh token cookie was available, we try to generate new access token with the refresh token
         elif refresh_token_payload is not None:
-            # Resolve Refresh Token model instance using the token resolved from cookie payload,
-            # and thereby, also check if it exists and is valid in database records
             self.refreshTokenObj: AbstractRefreshToken = self._get_refresh_token_object()
 
-            # if a valid refresh token was available, then we generate a new access token
             if self.refreshTokenObj is not None:
                 self.refreshToken = self.refreshTokenObj.token
                 user = self.refreshTokenObj.user
 
-                # update last login timestamp of the user
                 user.last_login = timezone.now()
                 user.save()
 
-                # generate a new access token to be given to the user
                 self._new_JWT_access_token = generate_token_from_claims(
                     claims={
                         "userID": user.id,
@@ -141,38 +193,89 @@ class JWTAuthExtension(Extension):
 
                 self.userID = user.id
 
-        # if both access_token_payload & refresh_token_payload could not be resolved
         else:
-            # if the cookies existed in the request, they are invalid now, and thus remove them
-            if (
-                self.is_cookie_in_request(JWT_ACCESS_TOKEN_COOKIE_NAME) or
-                self.is_cookie_in_request(JWT_REFRESH_TOKEN_COOKIE_NAME)
+            if self.is_cookie_in_request(JWT_ACCESS_TOKEN_COOKIE_NAME) or self.is_cookie_in_request(
+                JWT_REFRESH_TOKEN_COOKIE_NAME
             ):
                 self._remove_auth_cookies = True
 
-    def resolve(self, _next, root, info: Info, *args, **kwargs):
+        yield
+
+    def resolve(
+        self,
+        _next: Callable,
+        root: object,
+        info: strawberry.Info,
+        *args: tuple,
+        **kwargs: dict,
+    ):
+        """Populate ``info.context`` with auth state on every field resolution.
+
+        Parameters
+        ----------
+        _next : Callable
+            The next resolver in the middleware chain.
+        root : object
+            The parent resolved value.
+        info : Info
+            The Strawberry resolver info object.
+        *args : tuple
+            Additional positional arguments.
+        **kwargs : dict
+            Additional keyword arguments forwarded to the next resolver.
+
+        Returns
+        -------
+        Any
+            The result of calling ``_next``.
+
         """
-        This function is called by strawberry after everytime it resolves a field/type.
-        So for efficiency, resolving or much processing should not be done here.
-        Therefore, we already use the on_request_start() function to resolve and cache required data in the class.
-        """
-        # Incase a new JWT access token was generated earlier from `on_request_start`, we set it to request contest
-        # this will be later picked up by view.py and to set the access token cookie in the response
+        if not hasattr(self, "_new_JWT_access_token"):
+            self._new_JWT_access_token = None
+
+        if not hasattr(self, "_remove_auth_cookies"):
+            self._remove_auth_cookies = False
+
         if self._new_JWT_access_token is not None:
-            setattr(info.context.request, "REFRESHED_ACCESS_TOKEN", self._new_JWT_access_token)
+            setattr(
+                info.context.request,
+                "REFRESHED_ACCESS_TOKEN",
+                self._new_JWT_access_token,
+            )
 
-        # In case refresh token was not available or was invalid, we remove all the auth cookies from the response
         elif self._remove_auth_cookies:
-            setattr(info.context.request, "PERFORM_LOGOUT", True)
+            setattr(
+                info.context.request,
+                "PERFORM_LOGOUT",
+                True,
+            )
 
-        setattr(info.context, "refreshTokenObj", self.refreshTokenObj)
-        setattr(info.context, "refreshToken", self.refreshToken)
-        setattr(info.context, "userID", self.userID)
-        setattr(info.context, "request", self._request)
+        setattr(
+            info.context,
+            "refreshTokenObj",
+            getattr(self, "refreshTokenObj", None),
+        )
+        setattr(
+            info.context,
+            "refreshToken",
+            getattr(self, "refreshToken", None),
+        )
+        setattr(
+            info.context,
+            "userID",
+            getattr(self, "userID", None),
+        )
+        setattr(
+            info.context,
+            "request",
+            getattr(self, "_request", None),
+        )
 
-        return _next(root, info, **kwargs)
+        return _next(
+            root,
+            info,
+            **kwargs,
+        )
 
 
-__all__ = [
-    "JWTAuthExtension"
-]
+__all__ = ["JWTAuthExtension"]

@@ -1,0 +1,68 @@
+name: Django Unit Testing
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+
+env:
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  POSTGRES_DB: postgres
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  DEBUG: False
+
+jobs:
+  django-unit-tests:
+    name: Run Tests and Measure Coverage (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    permissions:
+      contents: write
+      checks: write
+      pull-requests: write
+
+    steps:
+      - name: Check out source repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          set -e
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Run tests
+        id: run_tests
+        run: pytest --cov=chowkidar --cov-report=xml --cov-report=term-missing
+
+      - name: Create code coverage comment
+        uses: orgoro/coverage@v3.2
+        id: code_coverage_comment
+        if: always()
+        with:
+          coverageFile: coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.0
+          thresholdNew: 0.0
+          thresholdModified: 0.0
+          sourceDir: .
+
+      - name: Check test results
+        if: always()
+        run: |
+          if [[ "${{ steps.run_tests.outcome }}" == "failure" ]]; then
+            echo "Tests failed!"
+            exit 1
+          fi

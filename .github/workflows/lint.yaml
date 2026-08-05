@@ -1,0 +1,35 @@
+name: RUFF Check
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+
+jobs:
+  ruff:
+    name: Code quality check using RUFF (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+
+    steps:
+      - name: Check out source repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: astral-sh/ruff-action@v4.1.0
+        name: Set up RUFF
+
+      - name: Analyze code using RUFF
+        run: ruff check
+
+      - name: Check RUFF formatter needs to be run on any files
+        run: ruff format --check

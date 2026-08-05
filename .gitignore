@@ -1,3 +1,22 @@
 .idea
 chowkidar_strawberry.egg-info
 dist
+# Virtual Environment
+.venv/
+venv/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Testing
+.pytest_cache/
+
+# Environment Variables
+.coverage
+.coverage.*
+coverage.xml
+report.xml
+htmlcov/
+.vscode/
+ai-prompts/

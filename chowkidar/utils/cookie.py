@@ -1,40 +1,53 @@
+from __future__ import annotations
+
 from datetime import datetime
-from django.http import HttpResponse, JsonResponse
+
+from django.http import HttpResponse
+from django.http import JsonResponse
 
 
 def set_cookie(
     name: str,
     value: str,
-    response: (HttpResponse or JsonResponse),
+    response: HttpResponse | JsonResponse,
     expires: datetime,
-) -> (HttpResponse or JsonResponse):
-    """
-        Sets a cookie through HTTP Response
+) -> HttpResponse | JsonResponse:
+    """Set an HTTP cookie on the response with the configured security attributes.
 
-        :param name: name of the cookie
-        :param value: value to be stored in the cookie
-        :param response: HTTP response object
-        :param expires: expiry time of the cookie
+    Parameters
+    ----------
+    name : str
+        Name of the cookie.
+    value : str
+        Value to store in the cookie.
+    response : HttpResponse | JsonResponse
+        The HTTP response object to attach the cookie to.
+    expires : datetime
+        Expiry timestamp for the cookie.
+
+    Returns
+    -------
+    HttpResponse | JsonResponse
+        The response object with the cookie set.
+
+    Notes
+    -----
+    - Cookie attributes (``secure``, ``httponly``, ``samesite``, ``domain``) are read
+      from ``chowkidar.settings`` at call time.
+
     """
-    from ..settings import (
-        JWT_COOKIE_SAME_SITE,
-        JWT_COOKIE_SECURE,
-        JWT_COOKIE_HTTP_ONLY,
-        JWT_COOKIE_DOMAIN,
-    )
+    from chowkidar.settings import JWT_COOKIE_DOMAIN
+    from chowkidar.settings import JWT_COOKIE_SECURE
+    from chowkidar.settings import JWT_COOKIE_HTTP_ONLY
+    from chowkidar.settings import JWT_COOKIE_SAME_SITE
 
     response.set_cookie(
         key=name,
         value=value,
-        # if enabled, cookie is sent only when request is made via https
         secure=JWT_COOKIE_SECURE,
-        # prevents client-side JS from accessing cookie
         httponly=JWT_COOKIE_HTTP_ONLY,
-        # expire time of cookie
         expires=expires,
-        # same site disable
         samesite=JWT_COOKIE_SAME_SITE,
-        # cookie domain
         domain=JWT_COOKIE_DOMAIN,
     )
     return response
@@ -42,13 +55,22 @@ def set_cookie(
 
 def delete_cookie(
     name: str,
-    response: (HttpResponse or JsonResponse),
-) -> (HttpResponse or JsonResponse):
-    """
-        Deletes a cookie through HTTP Response
+    response: HttpResponse | JsonResponse,
+) -> HttpResponse | JsonResponse:
+    """Delete a cookie from the response.
 
-        :param name: name of the cookie
-        :param response: HTTP response object
+    Parameters
+    ----------
+    name : str
+        Name of the cookie to delete.
+    response : HttpResponse | JsonResponse
+        The HTTP response object from which the cookie is removed.
+
+    Returns
+    -------
+    HttpResponse | JsonResponse
+        The response object with the cookie deleted.
+
     """
     response.delete_cookie(key=name)
     return response
@@ -56,5 +78,5 @@ def delete_cookie(
 
 __all__ = [
     "set_cookie",
-    "delete_cookie"
+    "delete_cookie",
 ]
